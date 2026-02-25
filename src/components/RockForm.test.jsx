@@ -17,30 +17,34 @@ vi.mock('react-router-dom', async () => {
   }
 })
 
+// Mock ImageUpload so it doesn't try to make real fetch calls in tests
+vi.mock('./ImageUpload', () => ({
+  ImageUpload: ({ onUploadComplete }) => (
+    <div data-testid="image-upload">
+      <button onClick={() => onUploadComplete(999)}>Mock Upload</button>
+    </div>
+  )
+}))
+
 describe('RockForm Component', () => {
-  // Mock fetchRocks function
   const mockFetchRocks = vi.fn()
-  
-  // Reset mocks before each test
+
   beforeEach(() => {
     vi.clearAllMocks()
-    
-    // Mock fetch to return types
+
     window.fetch = vi.fn().mockImplementation((url) => {
       if (url.includes('/types')) {
         return Promise.resolve({
           json: () => Promise.resolve(mockTypes)
         })
       }
-      
-      // For POST requests to /rocks
+      // POST to /rocks
       return Promise.resolve({
         status: 201,
         json: () => Promise.resolve({ id: 999 })
       })
     })
-    
-    // Mock localStorage
+
     Object.defineProperty(window, 'localStorage', {
       value: {
         getItem: vi.fn(() => JSON.stringify({ token: 'test-token' })),
@@ -50,21 +54,14 @@ describe('RockForm Component', () => {
   })
 
   it('renders the form with initial values', async () => {
-    // Render the component
     renderWithRouter(<RockForm fetchRocks={mockFetchRocks} />)
-    
-    // Check if the form title is displayed
+
     expect(screen.getByText('Collect a Rock')).toBeInTheDocument()
-    
-    // Check if form fields are present
     expect(screen.getByLabelText('Name:')).toBeInTheDocument()
     expect(screen.getByLabelText('Weight in kg:')).toBeInTheDocument()
     expect(screen.getByLabelText('Type')).toBeInTheDocument()
-    
-    // Check if the submit button is present
     expect(screen.getByText('Collect Rock')).toBeInTheDocument()
-    
-    // Wait for types to be fetched
+
     await waitFor(() => {
       expect(window.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/types'),
@@ -74,66 +71,49 @@ describe('RockForm Component', () => {
   })
 
   it('updates form values when user inputs data', async () => {
-    // Setup userEvent
     const user = userEvent.setup()
-    
-    // Render the component
     renderWithRouter(<RockForm fetchRocks={mockFetchRocks} />)
-    
-    // Get form inputs
+
     const nameInput = screen.getByLabelText('Name:')
     const weightInput = screen.getByLabelText('Weight in kg:')
     const typeSelect = screen.getByLabelText('Type')
-    
-    // Fill the form
+
     await user.type(nameInput, 'Granite')
     await user.clear(weightInput)
     await user.type(weightInput, '5.2')
-    
-    // Wait for types to load
+
     await waitFor(() => {
       expect(typeSelect.options.length).toBeGreaterThan(1)
     })
-    
-    // Select a type
+
     fireEvent.change(typeSelect, { target: { value: '1' } })
-    
-    // Check if values were updated
+
     expect(nameInput.value).toBe('Granite')
     expect(weightInput.value).toBe('5.2')
     expect(typeSelect.value).toBe('1')
   })
 
-  it('submits the form with correct data', async () => {
-    // Setup userEvent
+  it('submits the form and shows image upload section', async () => {
     const user = userEvent.setup()
-    
-    // Render the component
     renderWithRouter(<RockForm fetchRocks={mockFetchRocks} />)
-    
-    // Get form inputs
+
     const nameInput = screen.getByLabelText('Name:')
     const weightInput = screen.getByLabelText('Weight in kg:')
     const typeSelect = screen.getByLabelText('Type')
-    const submitButton = screen.getByText('Collect Rock')
-    
-    // Fill the form
+
     await user.type(nameInput, 'Granite')
     await user.clear(weightInput)
     await user.type(weightInput, '5.2')
-    
-    // Wait for types to load
+
     await waitFor(() => {
       expect(typeSelect.options.length).toBeGreaterThan(1)
     })
-    
-    // Select a type
+
     fireEvent.change(typeSelect, { target: { value: '1' } })
-    
-    // Submit the form
-    await user.click(submitButton)
-    
-    // Check if fetch was called with correct data
+
+    await user.click(screen.getByText('Collect Rock'))
+
+    // Verify POST was made with correct data
     await waitFor(() => {
       expect(window.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/rocks'),
@@ -146,11 +126,52 @@ describe('RockForm Component', () => {
           body: expect.stringContaining('"name":"Granite"')
         })
       )
-      
-      // Check if fetchRocks was called
+    })
+
+    // After POST, the form hides the submit button and shows the image upload section
+    await waitFor(() => {
+      expect(screen.queryByText('Collect Rock')).not.toBeInTheDocument()
+      expect(screen.getByText('Rock saved! Add an image (optional):')).toBeInTheDocument()
+      expect(screen.getByTestId('image-upload')).toBeInTheDocument()
+      expect(screen.getByText("Skip, I'll add an image later")).toBeInTheDocument()
+    })
+  })
+
+  it('navigates to /allrocks after skipping image upload', async () => {
+    const user = userEvent.setup()
+    renderWithRouter(<RockForm fetchRocks={mockFetchRocks} />)
+
+    await user.type(screen.getByLabelText('Name:'), 'Granite')
+    await user.click(screen.getByText('Collect Rock'))
+
+    await waitFor(() => {
+      expect(screen.getByText("Skip, I'll add an image later")).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByText("Skip, I'll add an image later"))
+
+    await waitFor(() => {
       expect(mockFetchRocks).toHaveBeenCalled()
-      
-      // Check if navigate was called to redirect
+      expect(mockNavigate).toHaveBeenCalledWith('/allrocks')
+    })
+  })
+
+  it('navigates to /allrocks after completing image upload', async () => {
+    const user = userEvent.setup()
+    renderWithRouter(<RockForm fetchRocks={mockFetchRocks} />)
+
+    await user.type(screen.getByLabelText('Name:'), 'Granite')
+    await user.click(screen.getByText('Collect Rock'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('image-upload')).toBeInTheDocument()
+    })
+
+    // Simulate the ImageUpload component calling onUploadComplete
+    await user.click(screen.getByText('Mock Upload'))
+
+    await waitFor(() => {
+      expect(mockFetchRocks).toHaveBeenCalled()
       expect(mockNavigate).toHaveBeenCalledWith('/allrocks')
     })
   })
