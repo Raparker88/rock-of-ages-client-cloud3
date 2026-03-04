@@ -4,40 +4,12 @@ import { RockImage } from "./RockImage"
 
 const RockCard = ({ rock, showAll, fetchRocks }) => {
   const apiUrl = import.meta.env.VITE_API_URL
-  const [imageId, setImageId] = useState(null)
-  const [imageLookupDone, setImageLookupDone] = useState(false)
 
-  useEffect(() => {
-    const fetchRockImage = async () => {
-      try {
-        const response = await fetch(`${apiUrl}/rock-images/?rock_id=${rock.id}`, {
-          headers: {
-            Authorization: `Token ${
-              JSON.parse(localStorage.getItem("rock_token")).token
-            }`,
-          },
-        })
-        if (response.ok) {
-          const data = await response.json()
-          // API returns a single object if an image exists for this rock
-          if (data && data.id) {
-            setImageId(data.id)
-          }
-        }
-      } catch (err) {
-        // silently fail — image section just won't show
-      } finally {
-        setImageLookupDone(true)
-      }
-    }
-
-    fetchRockImage()
-  }, [rock.id])
+  // Grab the first image from the array the API already returns
+  const firstImage = rock.images?.[0] ?? null
 
   return (
-    <div
-      className="border p-5 border-solid rounded-md border-violet-900 mt-5 bg-slate-50"
-    >
+    <div className="border p-5 border-solid rounded-md border-violet-900 mt-5 bg-slate-50">
       <div>
         {rock.name} ({rock.type.label})
       </div>
@@ -45,21 +17,20 @@ const RockCard = ({ rock, showAll, fetchRocks }) => {
         In the collection of {rock.user.first_name} {rock.user.last_name}
       </div>
 
-      {/* Image section — only render once the lookup has finished */}
-      {imageLookupDone && (
-        <>
-          {imageId ? (
-            <RockImage imageId={imageId} />
-          ) : (
-            // Only show upload option on My Rocks, not All Rocks
-            !showAll && (
-              <ImageUpload
-                rockId={rock.id}
-                onUploadComplete={(id) => setImageId(id)}
-              />
-            )
-          )}
-        </>
+      {/* Image section */}
+      {firstImage ? (
+        firstImage.status === "processing" ? (
+          <p className="text-sm text-gray-500 mt-2">Processing...</p>
+        ) : (
+          <RockImage imageId={firstImage.id} />
+        )
+      ) : (
+        !showAll && (
+          <ImageUpload
+            rockId={rock.id}
+            onUploadComplete={() => fetchRocks(showAll)}
+          />
+        )
       )}
 
       {/* Delete button — My Rocks only */}
