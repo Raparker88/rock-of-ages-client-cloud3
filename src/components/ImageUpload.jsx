@@ -10,6 +10,9 @@ export const ImageUpload = ({ rockId, onUploadComplete }) => {
     const file = e.target.files[0]
     if (!file) return
 
+    console.log("file.name:", file.name)
+    console.log("file.type:", file.type)
+
     try {
       setStatus("requesting")
       setError("")
